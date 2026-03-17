@@ -1,0 +1,38 @@
+# Virtual environment
+venv/
+
+# Model checkpoints (large files)
+checkpoints/
+
+# Pipeline outputs (generated)
+outputs/
+
+# Input media files (user-specific)
+inputs/*.mp4
+inputs/*.avi
+inputs/*.mov
+inputs/*.mkv
+inputs/*.jpg
+inputs/*.jpeg
+inputs/*.png
+inputs/*.bmp
+inputs/*.webp
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

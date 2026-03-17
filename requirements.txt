@@ -1,0 +1,6 @@
+torch
+torchvision
+opencv-python
+numpy
+pillow
+sam-2
