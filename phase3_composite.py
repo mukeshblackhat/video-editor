@@ -133,7 +133,15 @@ def composite_all_frames(frames_dir: str, masks_dir: str, bg_image_path: str,
             mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_LINEAR)
 
         # Step 1: Refine mask edges (or use legacy feathering)
-        if edge_refine:
+        # Detect if mask is already soft alpha (from MatAnyone) by checking
+        # for values between 1 and 254. Binary masks have only 0 and 255.
+        unique_vals = np.unique(mask)
+        is_soft_alpha = np.any((unique_vals > 0) & (unique_vals < 255))
+
+        if is_soft_alpha:
+            # MatAnyone already produced soft alpha — use directly
+            alpha = mask.astype(np.float32) / 255.0
+        elif edge_refine:
             alpha = refine_mask_edges(mask, frame, blur_radius=blur_radius,
                                       edge_width=edge_width)
         else:
