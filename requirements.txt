@@ -1,6 +1,8 @@
 torch
 torchvision
 opencv-python
+opencv-contrib-python
 numpy
 pillow
 sam-2
+scipy

@@ -106,25 +106,32 @@ All phases are orchestrated by `run_pipeline.py`, which calls into each module i
    - **Upscales** output masks back to original resolution.
    - Prompt points provided at original resolution are automatically scaled down for SAM 2.
 
-3. **phase3_composite.py** — Alpha-blends foreground (original frame * mask) onto the new background. Feathers mask edges with Gaussian blur (`--blur-radius`, default 5).
+3. **phase3_composite.py** — Enhanced compositing pipeline that orchestrates:
+   - **Edge-aware mask refinement** via `edge_refine.py` (guided filter, morphological cleanup, distance-based gradient)
+   - **Color spill decontamination** via `edge_refine.py` (removes original background bleeding in LAB space)
+   - **Color/lighting harmonization** via `color_harmonize.py` (histogram matching, white balance, exposure, ambient cast)
+   - **Background movement** via `bg_motion.py` (Ken Burns, parallax drift, depth parallax, motion blur)
+   - All features enabled by default, individually togglable via `--no-*` CLI flags.
 
-4. **phase4_render.py** — Assembles composited frames into MP4 with OpenCV, then merges audio from the original video using ffmpeg.
+4. **phase4_render.py** — Assembles composited frames into MP4 using ffmpeg H.264 (with OpenCV mp4v fallback), then merges audio from the original video.
+
+### Enhancement Modules
+
+- **`edge_refine.py`** — Edge-aware mask refinement: morphological erosion, guided/bilateral filtering, cosine-ramp boundary gradient, LAB color decontamination.
+- **`color_harmonize.py`** — Lighting harmonization: LAB histogram matching, white balance alignment, exposure correction, ambient color cast on edges.
+- **`bg_motion.py`** — Background movement engine: Ken Burns zoom+pan, sinusoidal parallax, depth-based counter-parallax (tracks subject COM), directional motion blur.
 
 ## Directory Layout (Runtime)
 
 - `inputs/` — Source video and background images
 - `outputs/frames/` — Extracted original frames (`frame_NNNNNN.png`)
 - `outputs/frames_scaled/` — Downscaled frames for SAM 2 (with `chunk_*` subdirs)
-- `outputs/masks/` — Binary segmentation masks (`mask_NNNNNN.png`)
+- `outputs/masks/` — Segmentation masks with soft edges (`mask_NNNNNN.png`)
 - `outputs/composited/` — Final composited frames (`comp_NNNNNN.png`)
 - `outputs/final.mp4` — Final output with audio
 - `checkpoints/` — SAM 2 model weights (`sam2.1_hiera_large.pt`)
 
-## Known Issue
-
-`run_pipeline.py` imports `segment_video` and `show_first_frame_for_prompt` from `phase2_segment`, but that module defines `run_segmentation` instead. The standalone phase2 works, but the orchestrator may fail on import.
-
 ## Key Dependencies
 
-- `sam-2` (Meta's SAM 2), `torch`, `torchvision`, `opencv-python`, `numpy`, `pillow`
-- `ffmpeg` (system binary, not a Python package) — needed for audio merging only
+- `sam-2` (Meta's SAM 2), `torch`, `torchvision`, `opencv-python`, `opencv-contrib-python`, `numpy`, `pillow`, `scipy`
+- `ffmpeg` (system binary, not a Python package) — needed for H.264 rendering and audio merging

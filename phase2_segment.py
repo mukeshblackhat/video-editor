@@ -119,9 +119,9 @@ def segment_chunk(chunk_dir: str, chunk_start: int, chunk_len: int,
     for frame_idx, obj_ids, mask_logits in predictor.propagate_in_video(state):
         mask = (mask_logits[0] > 0.0).cpu().numpy().squeeze().astype(np.uint8) * 255
 
-        # Upscale mask to original resolution
+        # Upscale mask to original resolution — keep soft edges from
+        # bilinear interpolation instead of re-binarizing.
         mask_full = cv2.resize(mask, (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
-        mask_full = (mask_full > 127).astype(np.uint8) * 255
 
         global_idx = chunk_start + frame_idx
         mask_path = masks_dir / f"mask_{global_idx:06d}.png"
