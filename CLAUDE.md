@@ -94,37 +94,47 @@ python run_pipeline.py --video inputs/video.mp4 --background inputs/bg.jpg --poi
 
 Each phase can also be run standalone (see `if __name__ == "__main__"` in each file).
 
-## Architecture — 4-Phase Pipeline
+## Architecture — 5-Phase Pipeline
 
 All phases are orchestrated by `run_pipeline.py`, which calls into each module in sequence:
 
 1. **phase1_extract.py** — Extracts every frame from the video as PNG files using OpenCV. Also has `rebuild_video()` for verifying lossless round-tripping.
 
-2. **phase2_segment.py** — Runs SAM 2 video segmentation. Key design decisions:
-   - **Downscales** frames (default max 1024px long side) before feeding to SAM 2 to fit in GPU memory.
-   - **Chunks** the frame sequence (default 450-500 frames/chunk) to avoid MPS memory limits. Each chunk gets its own SAM 2 predictor instance, prompted on frame 0.
-   - **Upscales** output masks back to original resolution.
-   - Prompt points provided at original resolution are automatically scaled down for SAM 2.
+2. **phase2_segment.py** — (Legacy) Runs SAM 2 video segmentation with chunking. Produces binary masks. Used when `--matting-mode sam2` is specified.
 
-3. **phase3_composite.py** — Alpha-blends foreground (original frame * mask) onto the new background. Feathers mask edges with Gaussian blur (`--blur-radius`, default 5).
+2b. **phase2b_matting.py** — (Default) MatAnyone video matting. Uses SAM 2 for first-frame mask only, then MatAnyone propagates soft alpha mattes (0-255 continuous) across all frames. Key advantages over phase2:
+   - **Regression vs classification** — produces continuous alpha [0,1] instead of binary 0/1
+   - **Hair-level detail** — preserves semi-transparent edges, hair strands, motion blur
+   - **Temporal consistency** — memory-based propagation eliminates per-frame flicker
+   - **No chunking needed** — MatAnyone handles long videos with its own memory management
+   - Requires `checkpoints/matanyone.pth` (~141MB, auto-downloaded from HuggingFace)
 
-4. **phase4_render.py** — Assembles composited frames into MP4 with OpenCV, then merges audio from the original video using ffmpeg.
+3. **phase3_composite.py** — Enhanced compositing pipeline that orchestrates:
+   - **Edge-aware mask refinement** via `edge_refine.py` (guided filter, morphological cleanup, distance-based gradient)
+   - **Color spill decontamination** via `edge_refine.py` (removes original background bleeding in LAB space)
+   - **Color/lighting harmonization** via `color_harmonize.py` (histogram matching, white balance, exposure, ambient cast)
+   - **Background movement** via `bg_motion.py` (Ken Burns, parallax drift, depth parallax, motion blur)
+   - All features enabled by default, individually togglable via `--no-*` CLI flags.
+
+4. **phase4_render.py** — Assembles composited frames into MP4 using ffmpeg H.264 (with OpenCV mp4v fallback), then merges audio from the original video.
+
+### Enhancement Modules
+
+- **`edge_refine.py`** — Edge-aware mask refinement: morphological erosion, guided/bilateral filtering, cosine-ramp boundary gradient, LAB color decontamination.
+- **`color_harmonize.py`** — Lighting harmonization: LAB histogram matching, white balance alignment, exposure correction, ambient color cast on edges.
+- **`bg_motion.py`** — Background movement engine: Ken Burns zoom+pan, sinusoidal parallax, depth-based counter-parallax (tracks subject COM), directional motion blur.
 
 ## Directory Layout (Runtime)
 
 - `inputs/` — Source video and background images
 - `outputs/frames/` — Extracted original frames (`frame_NNNNNN.png`)
 - `outputs/frames_scaled/` — Downscaled frames for SAM 2 (with `chunk_*` subdirs)
-- `outputs/masks/` — Binary segmentation masks (`mask_NNNNNN.png`)
+- `outputs/masks/` — Segmentation masks with soft edges (`mask_NNNNNN.png`)
 - `outputs/composited/` — Final composited frames (`comp_NNNNNN.png`)
 - `outputs/final.mp4` — Final output with audio
-- `checkpoints/` — SAM 2 model weights (`sam2.1_hiera_large.pt`)
-
-## Known Issue
-
-`run_pipeline.py` imports `segment_video` and `show_first_frame_for_prompt` from `phase2_segment`, but that module defines `run_segmentation` instead. The standalone phase2 works, but the orchestrator may fail on import.
+- `checkpoints/` — Model weights: `sam2.1_hiera_large.pt` (SAM 2, ~898MB), `matanyone.pth` (MatAnyone, ~141MB)
 
 ## Key Dependencies
 
-- `sam-2` (Meta's SAM 2), `torch`, `torchvision`, `opencv-python`, `numpy`, `pillow`
-- `ffmpeg` (system binary, not a Python package) — needed for audio merging only
+- `sam-2` (Meta's SAM 2), `matanyone` (MatAnyone video matting), `torch`, `torchvision`, `opencv-python`, `opencv-contrib-python`, `numpy`, `pillow`, `scipy`
+- `ffmpeg` (system binary, not a Python package) — needed for H.264 rendering and audio merging
