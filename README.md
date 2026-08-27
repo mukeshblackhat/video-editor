@@ -20,21 +20,6 @@ gone; it is maybe 30% visible with the background showing through. SAM 2 has to
 pick one or the other, so hair turns into a jagged, chopped edge. MatAnyone
 stores the 30%, so hair, soft edges, and motion blur come out looking real.
 
-## Which Branch to Use
-
-- **`main`** — the basic SAM 2 version. Hard edges, no color matching.
-- **`feature/enhanced-compositing`** — the MatAnyone version, plus edge
-  refinement, color harmonizing, and background motion. **Use this one.**
-
-To try MatAnyone on your own system:
-
-```bash
-git clone git@github.com:mukeshblackhat/video-editor.git
-cd video-editor
-git checkout feature/enhanced-compositing
-bash setup.sh
-```
-
 ## What You Need
 
 - Python 3.10 or newer
@@ -47,6 +32,8 @@ bash setup.sh
 Run this once:
 
 ```bash
+git clone git@github.com:mukeshblackhat/video-editor.git
+cd video-editor
 bash setup.sh
 source venv/bin/activate
 ```
@@ -54,6 +41,9 @@ source venv/bin/activate
 This makes a virtual environment, installs everything, and downloads the SAM 2
 model file (~2.4 GB). The MatAnyone model (~141 MB) downloads by itself the
 first time you run the pipeline.
+
+Everything lives on `main` — MatAnyone matting is on by default, so there is no
+branch to switch to.
 
 ## How to Use It
 
