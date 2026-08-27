@@ -10,6 +10,31 @@ It uses two AI models:
 - **MatAnyone** — draws a soft, detailed outline around them, so hair and edges
   look natural instead of cut out with scissors.
 
+### The Difference in One Line
+
+**SAM 2 says a pixel is either 0 or 1 — keep it or drop it. MatAnyone says a
+pixel can be anything between 0 and 1 — how visible it is.**
+
+That in-between is everything. A strand of hair is not fully there and not fully
+gone; it is maybe 30% visible with the background showing through. SAM 2 has to
+pick one or the other, so hair turns into a jagged, chopped edge. MatAnyone
+stores the 30%, so hair, soft edges, and motion blur come out looking real.
+
+## Which Branch to Use
+
+- **`main`** — the basic SAM 2 version. Hard edges, no color matching.
+- **`feature/enhanced-compositing`** — the MatAnyone version, plus edge
+  refinement, color harmonizing, and background motion. **Use this one.**
+
+To try MatAnyone on your own system:
+
+```bash
+git clone git@github.com:mukeshblackhat/video-editor.git
+cd video-editor
+git checkout feature/enhanced-compositing
+bash setup.sh
+```
+
 ## What You Need
 
 - Python 3.10 or newer
