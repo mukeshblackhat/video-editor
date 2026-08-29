@@ -106,3 +106,49 @@ detail this pipeline exists to preserve.
 This is why the A/B was worth running: the aggregate metrics (coverage, IoU)
 look nearly identical at both sizes and would have justified 512. Only the
 hair-band metric and the zoomed visual show the real cost.
+
+### R2 — Spill fix + matting at 768 (clean run from zero)
+
+Commits `e0e078b` + `a8d8baf` | `--max-matting-size 768 --no-color-harmonize`
+
+**TOTAL: 234 s (3m 54s) vs baseline 979 s (16m 19s) — 4.2x faster, 12.4 min saved**
+
+| Phase | R2 | R0 baseline | Speedup |
+|---|---|---|---|
+| 1 extract | 10 s | 10 s | 1.0x |
+| **2 matting** | **132 s** | **846 s** | **6.4x** |
+| 3 composite | 80 s | 110 s | 1.4x |
+| 4 render | ~3 s | 3 s | 1.0x |
+
+Phase 2 dropped from 86% of the run to 56%. MatAnyone ran at 768x1365
+(downscaled from 1080x1920), alpha upscaled back to full resolution.
+
+Phase 3 got faster *despite adding* spill suppression, because the background
+is now fitted once instead of a per-frame INTER_LANCZOS4 resize.
+
+| Quality | R0 | R2 | Verdict |
+|---|---|---|---|
+| Subject shift (alpha=1) | 41.65 | **0.37** | ✅ subject untouched |
+| Edge/subject brightness ratio | 1.013 | **0.680** | ✅ halo gone |
+| Coverage | 42.0% | 41.6–41.9% | ✅ stable |
+| Soft px | 1.65% | 2.64–3.13% | ✅ more edge detail |
+
+Output: `outputs/final.mp4` (11 MB)
+
+#### A metric that misled, and the correction
+
+The first comparison used "edge light retained" as an absolute percentage and
+showed the halo getting *worse* (10.1% -> 16.4%). That reading was wrong.
+
+`harmonize_colors` in R0 had darkened the **entire** subject — core brightness
+58.1 against a true 95.6 — so the edge looked dark only because everything was
+dark. The fair test is the edge measured **relative to the subject it belongs
+to**:
+
+| | Edge / subject brightness |
+|---|---|
+| R0 baseline | **1.013** — edge is *brighter* than the subject = halo |
+| R2 | **0.680** — edge is darker than the subject = correct |
+
+Lesson: an absolute brightness metric is meaningless when a change also shifts
+the overall exposure. Always normalize against something the change did not move.
