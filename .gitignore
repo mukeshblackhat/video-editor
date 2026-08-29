@@ -7,16 +7,19 @@ checkpoints/
 # Pipeline outputs (generated)
 outputs/
 
-# Input media files (user-specific)
-inputs/*.mp4
-inputs/*.avi
-inputs/*.mov
-inputs/*.mkv
-inputs/*.jpg
-inputs/*.jpeg
-inputs/*.png
-inputs/*.bmp
-inputs/*.webp
+# Input media files (user-specific, may contain personal footage).
+# Patterns are recursive: inputs/*.mp4 alone misses inputs/subdir/clip.mp4.
+inputs/**/*.mp4
+inputs/**/*.avi
+inputs/**/*.mov
+inputs/**/*.mkv
+inputs/**/*.MP4
+inputs/**/*.MOV
+inputs/**/*.jpg
+inputs/**/*.jpeg
+inputs/**/*.png
+inputs/**/*.bmp
+inputs/**/*.webp
 
 # Python
 __pycache__/
