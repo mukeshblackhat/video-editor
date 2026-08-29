@@ -16,9 +16,11 @@ import os
 import argparse
 from pathlib import Path
 
-from edge_refine import refine_mask_edges, decontaminate_edges
+from edge_refine import refine_mask_edges, decontaminate_edges, suppress_edge_spill
 from color_harmonize import harmonize_colors
-from bg_motion import apply_background_motion, get_default_motion_config
+from bg_motion import (apply_background_motion, get_default_motion_config,
+                       fit_background_to_frame, aspect_mismatch,
+                       ASPECT_WARN_THRESHOLD)
 
 
 def feather_mask(mask: np.ndarray, blur_radius: int = 5) -> np.ndarray:
@@ -60,7 +62,9 @@ def composite_all_frames(frames_dir: str, masks_dir: str, bg_image_path: str,
                          edge_refine: bool = True, edge_width: int = 15,
                          color_harmonize: bool = True, harmonize_strength: float = 0.6,
                          decontaminate: bool = True, decontaminate_strength: float = 0.7,
-                         bg_motion: bool = True, motion_config: dict = None):
+                         bg_motion: bool = True, motion_config: dict = None,
+                         spill_suppress: bool = True, spill_strength: float = 1.0,
+                         bg_fit: str = "cover"):
     """Composite all frames with new background using the full enhancement pipeline.
 
     Args:
@@ -77,6 +81,9 @@ def composite_all_frames(frames_dir: str, masks_dir: str, bg_image_path: str,
         decontaminate_strength: Decontamination strength [0, 1].
         bg_motion: Enable background movement effects.
         motion_config: Background motion config dict. None = use defaults.
+        spill_suppress: Remove original-background light from edge pixels.
+        spill_strength: Spill suppression strength [0, 1].
+        bg_fit: Background fit mode: 'cover', 'contain', or 'stretch'.
 
     Returns:
         Number of frames composited.
@@ -107,7 +114,18 @@ def composite_all_frames(frames_dir: str, masks_dir: str, bg_image_path: str,
     # Pre-read first frame to get dimensions and cache resized background
     first_frame = cv2.imread(str(frame_files[0]))
     h, w = first_frame.shape[:2]
-    bg_resized_cache = cv2.resize(background, (w, h), interpolation=cv2.INTER_LANCZOS4)
+
+    bg_h, bg_w = background.shape[:2]
+    mismatch = aspect_mismatch(bg_w, bg_h, w, h)
+    if mismatch > ASPECT_WARN_THRESHOLD and bg_fit != "stretch":
+        print(f"  Note: background {bg_w}x{bg_h} (AR {bg_w/bg_h:.3f}) differs from "
+              f"frame {w}x{h} (AR {w/h:.3f}) by {mismatch*100:.1f}%; "
+              f"using '{bg_fit}' fit.")
+
+    # Fit once at frame size. Background motion then operates in the correct
+    # aspect space instead of being stretched after the fact.
+    background = fit_background_to_frame(background, w, h, mode=bg_fit)
+    bg_resized_cache = background
 
     features = []
     if edge_refine:
@@ -116,6 +134,8 @@ def composite_all_frames(frames_dir: str, masks_dir: str, bg_image_path: str,
         features.append("color-harmonize")
     if decontaminate:
         features.append("decontaminate")
+    if spill_suppress:
+        features.append("spill-suppress")
     if bg_motion:
         features.append("bg-motion")
     print(f"Compositing {count} frames | Features: {', '.join(features) if features else 'basic'}")
@@ -147,17 +167,21 @@ def composite_all_frames(frames_dir: str, masks_dir: str, bg_image_path: str,
         else:
             alpha = feather_mask(mask, blur_radius)
 
-        # Step 2: Decontaminate edge colors
+        # Step 2a: Suppress spill from the ORIGINAL background. Must run
+        # before compositing, while the old background colour is still
+        # recoverable from the frame.
+        if spill_suppress:
+            frame = suppress_edge_spill(frame, alpha, strength=spill_strength)
+
+        # Step 2b: Decontaminate edge colors
         if decontaminate:
             frame = decontaminate_edges(frame, alpha, strength=decontaminate_strength)
 
         # Step 3: Apply background motion
         if bg_motion and motion_config:
-            bg_transformed = apply_background_motion(
+            bg_frame = apply_background_motion(
                 background, i, count, mask, motion_config
             )
-            bg_frame = cv2.resize(bg_transformed, (w, h),
-                                  interpolation=cv2.INTER_LANCZOS4)
         else:
             bg_frame = bg_resized_cache
 
@@ -200,6 +224,13 @@ if __name__ == "__main__":
                         help="Edge decontamination strength [0-1]")
     parser.add_argument("--no-bg-motion", action="store_true",
                         help="Disable background movement effects")
+    parser.add_argument("--no-spill-suppress", action="store_true",
+                        help="Disable original-background spill suppression")
+    parser.add_argument("--spill-strength", type=float, default=1.0,
+                        help="Spill suppression strength [0-1]")
+    parser.add_argument("--bg-fit", choices=["cover", "contain", "stretch"],
+                        default="cover",
+                        help="How to fit a background whose aspect differs from the video")
     args = parser.parse_args()
 
     os.chdir(Path(__file__).parent)
@@ -214,4 +245,7 @@ if __name__ == "__main__":
         decontaminate=not args.no_decontaminate,
         decontaminate_strength=args.decontaminate_strength,
         bg_motion=not args.no_bg_motion,
+        spill_suppress=not args.no_spill_suppress,
+        spill_strength=args.spill_strength,
+        bg_fit=args.bg_fit,
     )

@@ -415,3 +415,97 @@ def _apply_boundary_gradient(
     result[solid_bg] = 0.0
 
     return result
+
+
+def suppress_edge_spill(
+    frame: np.ndarray,
+    mask_alpha: np.ndarray,
+    old_bg_color: tuple | None = None,
+    strength: float = 1.0,
+    alpha_floor: float = 0.15,
+) -> np.ndarray:
+    """Remove the original background's light from semi-transparent edge pixels.
+
+    A pixel at the hair boundary is a genuine physical mixture:
+
+        observed = foreground * alpha + old_background * (1 - alpha)
+
+    Alpha compositing onto a new background reuses ``observed`` as if it were
+    pure foreground, so the old background's colour is carried into the new
+    scene.  When the subject was filmed against a bright wall and composited
+    onto a dark background, that residue reads as a white halo around the hair.
+
+    This function solves the equation above for the foreground term:
+
+        foreground = (observed - old_background * (1 - alpha)) / alpha
+
+    Unlike :func:`decontaminate_edges`, which nudges edge colours along a
+    background-to-foreground axis, this removes the background contribution
+    outright, which is what a strong brightness mismatch requires.
+
+    The division is ill-conditioned as ``alpha`` approaches zero, so pixels
+    below ``alpha_floor`` are left untouched — they contribute almost nothing
+    to the composite anyway, being replaced by the new background.
+
+    Parameters
+    ----------
+    frame : np.ndarray
+        Original video frame, uint8, (H, W, 3), BGR.
+    mask_alpha : np.ndarray
+        Soft alpha matte, float32, (H, W), values in [0, 1].
+    old_bg_color : tuple or None
+        BGR colour of the original background.  If *None*, it is estimated
+        from pure-background regions (alpha < 0.05).
+    strength : float
+        Blend between the original pixel (0.0) and the fully unmixed
+        foreground (1.0).
+    alpha_floor : float
+        Pixels with alpha below this are left unchanged.
+
+    Returns
+    -------
+    np.ndarray
+        Frame with edge spill suppressed, uint8, (H, W, 3), BGR.  The input
+        is never modified.
+    """
+    if frame.ndim != 3 or frame.shape[2] != 3:
+        raise ValueError(f"frame must be (H,W,3), got shape {frame.shape}")
+    if mask_alpha.ndim != 2:
+        raise ValueError(f"mask_alpha must be 2-D, got shape {mask_alpha.shape}")
+    if mask_alpha.shape[:2] != frame.shape[:2]:
+        raise ValueError(
+            f"mask_alpha shape {mask_alpha.shape} does not match "
+            f"frame shape {frame.shape[:2]}"
+        )
+
+    strength = float(np.clip(strength, 0.0, 1.0))
+    if strength == 0.0:
+        return frame.copy()
+
+    alpha = mask_alpha.astype(np.float32)
+
+    # Only partially-transparent pixels carry spill. Fully opaque pixels have
+    # no background contribution; fully transparent ones get replaced entirely.
+    band = (alpha >= alpha_floor) & (alpha < 0.999)
+    if not np.any(band):
+        return frame.copy()
+
+    if old_bg_color is None:
+        old_bg_color = estimate_original_bg_color(frame, alpha)
+        if old_bg_color is None:
+            return frame.copy()
+
+    bg = np.asarray(old_bg_color, dtype=np.float32).reshape(1, 3)
+
+    observed = frame[band].astype(np.float32)          # (N, 3)
+    a = alpha[band].reshape(-1, 1)                     # (N, 1)
+
+    # Solve observed = fg*a + bg*(1-a) for fg.
+    unmixed = (observed - bg * (1.0 - a)) / a
+    unmixed = np.clip(unmixed, 0.0, 255.0)
+
+    result = frame.copy()
+    result[band] = np.clip(
+        np.round(observed * (1.0 - strength) + unmixed * strength), 0, 255
+    ).astype(np.uint8)
+    return result
