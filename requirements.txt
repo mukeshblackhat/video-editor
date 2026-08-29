@@ -1,0 +1,9 @@
+torch
+torchvision
+opencv-python
+opencv-contrib-python
+numpy
+pillow
+sam-2
+scipy
+matanyone @ git+https://github.com/pq-yang/MatAnyone.git
