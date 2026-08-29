@@ -15,6 +15,112 @@ import cv2
 import numpy as np
 import math
 
+# Aspect-ratio mismatch above this fraction is worth warning about. Backgrounds
+# within this band produce sub-pixel distortion under any fit mode.
+ASPECT_WARN_THRESHOLD = 0.02
+
+
+def aspect_mismatch(bg_w: int, bg_h: int, frame_w: int, frame_h: int) -> float:
+    """Relative difference between a background's aspect ratio and the frame's.
+
+    Args:
+        bg_w, bg_h: Background dimensions in pixels.
+        frame_w, frame_h: Target frame dimensions in pixels.
+
+    Returns:
+        Absolute relative difference, e.g. 0.0 for an exact match and ~2.16
+        for a 16:9 background against a 9:16 frame. Scale-free: only the
+        ratios matter, not the absolute sizes.
+    """
+    if bg_h <= 0 or frame_h <= 0 or bg_w <= 0 or frame_w <= 0:
+        raise ValueError(
+            f"dimensions must be positive, got bg {bg_w}x{bg_h}, "
+            f"frame {frame_w}x{frame_h}"
+        )
+    bg_ar = bg_w / bg_h
+    frame_ar = frame_w / frame_h
+    return abs(bg_ar - frame_ar) / frame_ar
+
+
+def fit_background_to_frame(bg_image: np.ndarray, frame_w: int, frame_h: int,
+                            mode: str = "cover",
+                            interpolation: int = cv2.INTER_LANCZOS4) -> np.ndarray:
+    """Resize a background to frame dimensions without distorting its geometry.
+
+    A plain cv2.resize() to the frame size stretches the image whenever the
+    aspect ratios differ — a 16:9 background behind a 9:16 video is squeezed
+    to roughly a third of its correct width. This function scales uniformly
+    instead, so circles stay circular and verticals stay vertical.
+
+    Args:
+        bg_image: Background image, uint8 (H, W, 3).
+        frame_w: Target width in pixels.
+        frame_h: Target height in pixels.
+        mode: One of:
+            'cover'   - scale to fill, centre-crop the overflow. No blank
+                        areas, geometry preserved. The sensible default.
+            'contain' - scale so the whole image fits, pad the remainder
+                        with black. Geometry preserved, may letterbox.
+            'stretch' - legacy anisotropic resize. Fills the frame but
+                        distorts. Retained for backward compatibility.
+        interpolation: OpenCV interpolation flag used for the resize.
+
+    Returns:
+        uint8 (frame_h, frame_w, 3) image. The input is never modified.
+
+    Raises:
+        ValueError: On an unknown mode, an empty image, or a non-positive
+            target dimension.
+    """
+    if mode not in ("cover", "contain", "stretch"):
+        raise ValueError(
+            f"unknown mode {mode!r}; expected 'cover', 'contain', or 'stretch'"
+        )
+    if bg_image is None or bg_image.size == 0:
+        raise ValueError("bg_image must be a non-empty array")
+    if frame_w <= 0 or frame_h <= 0:
+        raise ValueError(
+            f"target dimensions must be positive, got {frame_w}x{frame_h}"
+        )
+
+    bg_h, bg_w = bg_image.shape[:2]
+
+    if mode == "stretch":
+        return cv2.resize(bg_image, (frame_w, frame_h), interpolation=interpolation)
+
+    # Uniform scale factor. 'cover' takes the larger so the frame is filled;
+    # 'contain' takes the smaller so the whole image fits.
+    scale_w = frame_w / bg_w
+    scale_h = frame_h / bg_h
+    scale = max(scale_w, scale_h) if mode == "cover" else min(scale_w, scale_h)
+
+    # Round up so rounding never leaves a one-pixel gap along an edge.
+    new_w = max(1, int(math.ceil(bg_w * scale)))
+    new_h = max(1, int(math.ceil(bg_h * scale)))
+    scaled = cv2.resize(bg_image, (new_w, new_h), interpolation=interpolation)
+
+    if mode == "cover":
+        # Centre-crop the overflow down to exactly the frame size.
+        x0 = max(0, (new_w - frame_w) // 2)
+        y0 = max(0, (new_h - frame_h) // 2)
+        cropped = scaled[y0:y0 + frame_h, x0:x0 + frame_w]
+        # Guard against a short crop from extreme rounding.
+        if cropped.shape[0] != frame_h or cropped.shape[1] != frame_w:
+            cropped = cv2.resize(cropped, (frame_w, frame_h),
+                                 interpolation=interpolation)
+        return np.ascontiguousarray(cropped)
+
+    # contain: centre the scaled image on a black canvas.
+    canvas = np.zeros((frame_h, frame_w, bg_image.shape[2]), dtype=bg_image.dtype)
+    if new_w > frame_w or new_h > frame_h:
+        scaled = cv2.resize(scaled, (min(new_w, frame_w), min(new_h, frame_h)),
+                            interpolation=interpolation)
+        new_h, new_w = scaled.shape[:2]
+    x0 = (frame_w - new_w) // 2
+    y0 = (frame_h - new_h) // 2
+    canvas[y0:y0 + new_h, x0:x0 + new_w] = scaled
+    return canvas
+
 
 def get_default_motion_config() -> dict:
     """Return a default motion configuration with sensible defaults.
