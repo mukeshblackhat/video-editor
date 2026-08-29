@@ -152,3 +152,42 @@ to**:
 
 Lesson: an absolute brightness metric is meaningless when a change also shifts
 the overall exposure. Always normalize against something the change did not move.
+
+### R3 — Second subject validation: Manvi Mehta
+
+Same optimized settings, same purple background, a different and harder clip.
+Purpose: confirm the changes generalize rather than fitting one video.
+
+`--max-matting-size 768 --no-color-harmonize`, points `501,946,501,1051,501,1400`
+
+| | Diksha | Manvi |
+|---|---|---|
+| Frames | 309 (12.9 s) | **359 (15.0 s)** |
+| Original background | cream wall | **beige curtain** |
+| Shot | close-up | **full body standing** |
+| Hair | straight | **long curly** |
+| Clothing | olive | **lavender + white** |
+
+| Phase | Time |
+|---|---|
+| 1 extract | 15 s |
+| 2 matting | 122 s |
+| 3 composite | 103 s |
+| **TOTAL** | **254 s (4m 14s)** |
+
+**0.708 s/frame vs Diksha's 0.757 s/frame** — slightly faster per frame on a
+harder clip. The optimization is not clip-specific.
+
+| Quality | Value |
+|---|---|
+| Coverage | 25.1–28.0% (lower than Diksha's 42% — she stands further from camera) |
+| Soft px | 1.59–1.68% |
+| Subject shift | **0.40–0.42** ✅ |
+| Edge/subject ratio | **0.47–0.50** ✅ (better than Diksha's 0.68) |
+
+The edge ratio is *better* here despite a brighter original background, because
+the beige curtain is more uniform than Diksha's wall-plus-curtain, so the single
+background colour estimate in `suppress_edge_spill` fits it more closely.
+
+Outputs kept as `outputs/final_diksha.mp4` and `outputs/final_manvi.mp4`, with
+per-subject `frames_*`, `masks_*`, `composited_*` directories.
